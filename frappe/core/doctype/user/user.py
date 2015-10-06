@@ -41,6 +41,8 @@ class User(Document):
 		if self.language == "Loading...":
 			self.language = None
 
+		self.validate_location()
+
 	def check_enable_disable(self):
 		# do not allow disabling administrator/guest
 		if not cint(self.enabled) and self.name in STANDARD_USERS:
@@ -295,6 +297,15 @@ class User(Document):
 				self.get("user_roles").remove(d)
 			else:
 				exists.append(d.role)
+	# Added validation on location entered in child table is must be unique
+	def validate_location(self):
+		location = []
+		for d in self.get("location"):
+			if d.location in location:
+				frappe.msgprint("Duplicate location name '%s' is not allowed in property details table at row '%s'"%(d.location,d.idx),raise_exception=1)
+			else:
+				location.append(d.location)
+
 
 @frappe.whitelist()
 def get_languages():

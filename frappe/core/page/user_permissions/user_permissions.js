@@ -249,7 +249,6 @@ frappe.UserPermissions = Class.extend({
 				.appendTo(me.table.find("thead tr"));
 		});
 
-
 		$.each(this.prop_list, function(i, d) {
 			var row = $("<tr>").appendTo(me.table.find("tbody"));
 
@@ -259,6 +258,7 @@ frappe.UserPermissions = Class.extend({
 			$("<td>").html(d.defvalue).appendTo(row);
 
 			me.add_delete_button(row, d);
+
 		});
 
 	},
