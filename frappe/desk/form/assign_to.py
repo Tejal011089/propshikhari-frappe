@@ -21,7 +21,6 @@ def get(args=None):
 
 @frappe.whitelist()
 def add(args=None):
-	frappe.errprint(args)
 	"""add in someone's to do list
 		args = {
 			"assign_to": ,
