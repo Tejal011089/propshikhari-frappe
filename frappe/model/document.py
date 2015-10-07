@@ -58,6 +58,8 @@ class Document(BaseDocument):
 		all values (including child documents) from the database.
 		"""
 		self.doctype = self.name = None
+		self._default_new_docs = {}
+		self.flags = frappe._dict()
 
 		if arg1 and isinstance(arg1, basestring):
 			if not arg2:
@@ -83,8 +85,9 @@ class Document(BaseDocument):
 			# incorrect arguments. let's not proceed.
 			raise frappe.DataError("Document({0}, {1})".format(arg1, arg2))
 
-		self._default_new_docs = {}
-		self.flags = frappe._dict()
+	def reload(self):
+		"""Reload document from database"""
+		self.load_from_db()
 
 	def load_from_db(self):
 		"""Load document and children from database and create properties
@@ -167,7 +170,7 @@ class Document(BaseDocument):
 
 		self.check_permission("create")
 		self._set_defaults()
-		self._set_docstatus_user_and_timestamp()
+		self.set_docstatus_user_and_timestamp()
 		self.check_if_latest()
 		self.run_method("before_insert")
 		self.set_new_name()
@@ -218,7 +221,7 @@ class Document(BaseDocument):
 
 		self.check_permission("write", "save")
 
-		self._set_docstatus_user_and_timestamp()
+		self.set_docstatus_user_and_timestamp()
 		self.check_if_latest()
 		self.set_parent_in_children()
 		self.validate_higher_perm_levels()
@@ -295,7 +298,10 @@ class Document(BaseDocument):
 				frappe.db.sql("""insert into tabSingles(doctype, field, value)
 					values (%s, %s, %s)""", (self.doctype, field, value))
 
-	def _set_docstatus_user_and_timestamp(self):
+		if self.doctype in frappe.db.value_cache:
+			del frappe.db.value_cache[self.doctype]
+
+	def set_docstatus_user_and_timestamp(self):
 		self._original_modified = self.modified
 		self.modified = now()
 		self.modified_by = frappe.session.user
@@ -457,6 +463,10 @@ class Document(BaseDocument):
 
 		self._validate_update_after_submit()
 		for d in self.get_all_children():
+			if d.is_new() and self.meta.get_field(d.parentfield).allow_on_submit:
+				# in case of a new row, don't validate allow on submit, if table is allow on submit
+				continue
+
 			d._validate_update_after_submit()
 
 		# TODO check only allowed values are updated
@@ -596,11 +606,11 @@ class Document(BaseDocument):
 			self.run_method("on_update_after_submit")
 
 		frappe.cache().hdel("last_modified", self.doctype)
-		self.notify_modified()
+		self.notify_update()
 
 		self.latest = None
 
-	def notify_modified(self):
+	def notify_update(self):
 		"""Publish realtime that the current document is modified"""
 		frappe.publish_realtime("doc_update", {"modified": self.modified, "doctype": self.doctype, "name": self.name},
 			doctype=self.doctype, docname=self.name)

@@ -38,13 +38,16 @@ class _dict(dict):
 	def copy(self):
 		return _dict(dict(self).copy())
 
-def _(msg):
+def _(msg, lang=None):
 	"""Returns translated string in current lang, if exists."""
-	if local.lang == "en":
+	if not lang:
+		lang = local.lang
+
+	if lang == "en":
 		return msg
 
 	from frappe.translate import get_full_dict
-	return get_full_dict(local.lang).get(msg, msg)
+	return get_full_dict(local.lang).get(msg) or msg
 
 def get_lang_dict(fortype, name=None):
 	"""Returns the translated language dict for the given type and name.
@@ -66,7 +69,6 @@ db = local("db")
 conf = local("conf")
 form = form_dict = local("form_dict")
 request = local("request")
-request_method = local("request_method")
 response = local("response")
 session = local("session")
 user = local("user")
@@ -109,7 +111,6 @@ def init(site, sites_path=None):
 	local.sites_path = sites_path
 	local.site_path = os.path.join(sites_path, site)
 
-	local.request_method = request.method if request else None
 	local.request_ip = None
 	local.response = _dict({"docs":[]})
 	local.task_id = None
@@ -309,7 +310,7 @@ def sendmail(recipients=(), sender="", subject="No Subject", message="No Message
 		as_markdown=False, bulk=False, reference_doctype=None, reference_name=None,
 		unsubscribe_method=None, unsubscribe_params=None, unsubscribe_message=None,
 		attachments=None, content=None, doctype=None, name=None, reply_to=None,
-		cc=(), message_id=None, as_bulk=False, send_after=None):
+		cc=(), message_id=None, as_bulk=False, send_after=None, expose_recipients=False):
 	"""Send email using user's default **Email Account** or global default **Email Account**.
 
 
@@ -327,6 +328,7 @@ def sendmail(recipients=(), sender="", subject="No Subject", message="No Message
 	:param reply_to: Reply-To email id.
 	:param message_id: Used for threading. If a reply is received to this email, Message-Id is sent back as In-Reply-To in received email.
 	:param send_after: Send after the given datetime.
+	:param expose_recipients: Display all recipients in the footer message - "This email was sent to"
 	"""
 
 	if bulk or as_bulk:
@@ -335,7 +337,8 @@ def sendmail(recipients=(), sender="", subject="No Subject", message="No Message
 			subject=subject, message=content or message,
 			reference_doctype = doctype or reference_doctype, reference_name = name or reference_name,
 			unsubscribe_method=unsubscribe_method, unsubscribe_params=unsubscribe_params, unsubscribe_message=unsubscribe_message,
-			attachments=attachments, reply_to=reply_to, cc=cc, message_id=message_id, send_after=send_after)
+			attachments=attachments, reply_to=reply_to, cc=cc, message_id=message_id, send_after=send_after,
+			expose_recipients=expose_recipients)
 	else:
 		import frappe.email
 		if as_markdown:
@@ -350,7 +353,8 @@ def sendmail(recipients=(), sender="", subject="No Subject", message="No Message
 logger = None
 whitelisted = []
 guest_methods = []
-def whitelist(allow_guest=False):
+xss_safe_methods = []
+def whitelist(allow_guest=False, xss_safe=False):
 	"""
 	Decorator for whitelisting a function and making it accessible via HTTP.
 	Standard request will be `/api/method/[path.to.method]`
@@ -364,11 +368,14 @@ def whitelist(allow_guest=False):
 			pass
 	"""
 	def innerfn(fn):
-		global whitelisted, guest_methods
+		global whitelisted, guest_methods, xss_safe_methods
 		whitelisted.append(fn)
 
 		if allow_guest:
 			guest_methods.append(fn)
+
+			if xss_safe:
+				xss_safe_methods.append(fn)
 
 		return fn
 
@@ -906,6 +913,20 @@ def get_all(doctype, *args, **kwargs):
 		kwargs["limit_page_length"] = 0
 	return get_list(doctype, *args, **kwargs)
 
+def get_value(*args, **kwargs):
+	"""Returns a document property or list of properties.
+
+	Alias for `frappe.db.get_value`
+
+	:param doctype: DocType name.
+	:param filters: Filters like `{"x":"y"}` or name of the document. `None` if Single DocType.
+	:param fieldname: Column name.
+	:param ignore: Don't raise exception if table, column is missing.
+	:param as_dict: Return values as dict.
+	:param debug: Print query in error log.
+	"""
+	return db.get_value(*args, **kwargs)
+
 def add_version(doc):
 	"""Insert a new **Version** of the given document.
 	A **Version** is a JSON dump of the current document state."""
@@ -919,6 +940,9 @@ def add_version(doc):
 def as_json(obj, indent=1):
 	from frappe.utils.response import json_handler
 	return json.dumps(obj, indent=indent, sort_keys=True, default=json_handler)
+
+def are_emails_muted():
+	return flags.mute_emails or conf.get("mute_emails") or False
 
 def get_test_records(doctype):
 	"""Returns list of objects from `test_records.json` in the given doctype's folder."""
@@ -1010,3 +1034,19 @@ def publish_realtime(*args, **kwargs):
 	import frappe.async
 
 	return frappe.async.publish_realtime(*args, **kwargs)
+
+def local_cache(namespace, key, generator):
+	"""A key value store for caching within a request
+
+	:param namespace: frappe.local.cache[namespace]
+	:param key: frappe.local.cache[namespace][key] used to retrieve value
+	:param generator: method to generate a value if not found in store
+
+	"""
+	if namespace not in local.cache:
+		local.cache[namespace] = {}
+
+	if key not in local.cache[namespace]:
+		local.cache[namespace][key] = generator()
+
+	return local.cache[namespace][key]

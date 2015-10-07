@@ -25,11 +25,14 @@ io.on('connection', function(socket){
 	if (get_hostname(socket.request.headers.host) != get_hostname(socket.request.headers.origin)) {
 		return;
 	}
+
+	// console.log("connection!");
 	var sid = cookie.parse(socket.request.headers.cookie).sid
 	if(!sid) {
 		return;
 	}
-	request.post(get_url(socket, '/api/method/frappe.async.get_user_info'))
+	// console.log("firing get_user_info");
+	request.get(get_url(socket, '/api/method/frappe.async.get_user_info'))
 		.type('form')
 		.send({
 			sid: sid
@@ -45,19 +48,22 @@ io.on('connection', function(socket){
 				socket.join(room);
 				socket.join(get_site_room(socket));
 			}
-		})
+		});
+
 	socket.on('task_subscribe', function(task_id) {
 		var room = 'task:' + task_id;
 		socket.join(room);
-	})
+	});
+
 	socket.on('progress_subscribe', function(task_id) {
 		var room = 'task_progress:' + task_id;
 		socket.join(room);
 		send_existing_lines(task_id, socket);
-	})
+	});
+
 	socket.on('doc_subscribe', function(doctype, docname) {
 		// console.log('trying to subscribe', doctype, docname)
-		request.post(get_url(socket, '/api/method/frappe.async.can_subscribe_doc'))
+		request.get(get_url(socket, '/api/method/frappe.async.can_subscribe_doc'))
 			.type('form')
 			.send({
 				sid: sid,
@@ -66,6 +72,10 @@ io.on('connection', function(socket){
 			})
 			.end(function(err, res) {
 				if(err) console.log(err);
+				if(!res) {
+					console.log("No response for doc_subscribe");
+					return;
+				}
 				if(res.status == 200) {
 					var room = get_doc_room(socket, doctype, docname);
 					// console.log('joining', room)
@@ -73,10 +83,15 @@ io.on('connection', function(socket){
 				}
 			})
 	});
+
 	socket.on('doc_unsubscribe', function(doctype, docname) {
 		var room = get_doc_room(socket, doctype, docname);
 		socket.leave(room);
 	});
+
+	// socket.on('disconnect', function (arguments) {
+	// 	console.log("user disconnected", arguments);
+	// });
 });
 
 function send_existing_lines(task_id, socket) {

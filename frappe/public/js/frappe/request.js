@@ -32,6 +32,10 @@ frappe.call = function(opts) {
 		if(data.task_id) {
 			// async call, subscribe
 			frappe.socket.subscribe(data.task_id, opts);
+
+			if(opts.queued) {
+				opts.queued(data);
+			}
 		}
 		else if (opts.callback) {
 			// ajax
@@ -57,9 +61,6 @@ frappe.call = function(opts) {
 
 frappe.request.call = function(opts) {
 	frappe.request.prepare(opts);
-
-	// all requests will be post, set _type as POST for commit
-	opts.args._type = opts.type;
 
 	var statusCode = {
 		200: function(data, xhr) {
@@ -111,15 +112,20 @@ frappe.request.call = function(opts) {
 			msgprint(__("Server Error: Please check your server logs or contact tech support."))
 			opts.error_callback && opts.error_callback();
 			frappe.request.report_error(xhr, opts);
+		},
+		504: function(xhr) {
+			msgprint(__("Request Timed Out"))
+			opts.error_callback && opts.error_callback();
 		}
 	};
 
 	var ajax_args = {
 		url: opts.url || frappe.request.url,
 		data: opts.args,
-		type: 'POST',
+		type: opts.type,
 		dataType: opts.dataType || 'json',
-		async: opts.async
+		async: opts.async,
+		headers: { "X-Frappe-CSRF-Token": frappe.csrf_token }
 	};
 
 	frappe.last_request = ajax_args.data;

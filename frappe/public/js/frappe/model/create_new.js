@@ -82,8 +82,10 @@ $.extend(frappe.model, {
 
 		// don't set defaults for "User" link field using User Permissions!
 		if (df.fieldtype==="Link" && df.options!=="User") {
-			// 1 - look in user permissions
-			if (has_user_permissions && user_permissions[df.options].length===1) {
+			// 1 - look in user permissions for document_type=="Setup".
+			// We don't want to include permissions of transactions to be used for defaults.
+			if (df.linked_document_type==="Setup"
+				&& has_user_permissions && user_permissions[df.options].length===1) {
 				return user_permissions[df.options][0];
 			}
 
@@ -221,6 +223,7 @@ $.extend(frappe.model, {
 			args: {
 				"source_name": opts.source_name
 			},
+			freeze: true,
 			callback: function(r) {
 				if(!r.exc) {
 					var doc = frappe.model.sync(r.message);
@@ -238,7 +241,9 @@ $.extend(frappe.model, {
 		}
 		var _map = function() {
 			return frappe.call({
-				type: "GET",
+				// Sometimes we hit the limit for URL length of a GET request
+				// as we send the full target_doc. Hence this is a POST request.
+				type: "POST",
 				method: opts.method,
 				args: {
 					"source_name": opts.source_name,
